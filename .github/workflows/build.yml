@@ -2,7 +2,6 @@ name: Build APK
 
 on:
   push:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -11,6 +10,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Find nostalgia-player.zip in repo
+        id: zip
+        run: |
+          ZIP=$(find . -name 'nostalgia-player.zip' -not -path './.git/*' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "nostalgia-player.zip was not found anywhere in the repo"
+            exit 1
+          fi
+          echo "Found $ZIP"
+          echo "path=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Unpack project
+        run: |
+          rm -rf app && mkdir app
+          unzip -q "${{ steps.zip.outputs.path }}" -d app
+          ls -la app app/www
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -27,21 +43,23 @@ jobs:
         run: |
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           SM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager | tail -n 1)
-          echo "Using $SM"
           yes | "$SM" --licenses > /dev/null || true
           "$SM" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install Capacitor
+        working-directory: app
         run: npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 --save
 
       - name: Add Android platform
+        working-directory: app
         run: npx cap add android
 
       - name: Sync web assets
+        working-directory: app
         run: npx cap sync android
 
       - name: Build debug APK
-        working-directory: android
+        working-directory: app/android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
@@ -50,5 +68,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nostalgia-player-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
